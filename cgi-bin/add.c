@@ -14,7 +14,7 @@ int main(void) {
 	n2 = atoi(arg2);
     }
   
-    sprintf(content, "%s %d + %d = %d\r\n<p>", content, n1, n2, n1 + n2);
+    sprintf(content, "%s result：%d + %d = %d\r\n<p>", content, n1, n2, n1 + n2);
 
     printf("Connection: close\r\n");
     printf("Content-length: %d\r\n", (int)strlen(content));

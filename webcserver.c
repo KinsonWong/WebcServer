@@ -1,13 +1,15 @@
 #include "util.h"
 
 void request_handler(int fd);
-void read_requesthdrs(rio_t *rp);
+void get_requesthdrs(rio_t *rp);
+void post_requesthdrs(rio_t *rp,int *length);
 int parse_uri(char *uri, char *filename, char *cgiargs);
 void serve_static(int fd, char *filename, int filesize);
 void get_filetype(char *filename, char *filetype);
-void serve_dynamic(int fd, char *filename, char *cgiargs);
-void clienterror(int fd, char *cause, char *errnum, 
-		 char *shortmsg, char *longmsg);
+void get_dynamic(int fd, char *filename, char *cgiargs);
+void post_dynamic(int fd, char *filename, int contentLength,rio_t *rp); 
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
+
 
 int main(int argc, char **argv) 
 {
@@ -36,6 +38,7 @@ int main(int argc, char **argv)
 void request_handler(int fd) 
 {
     int is_static;
+	int isGet=1,contentLength=0;
     struct stat sbuf;
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
     char filename[MAXLINE], cgiargs[MAXLINE];
@@ -45,52 +48,83 @@ void request_handler(int fd)
     if (!Rio_readlineb(&rio, buf, MAXLINE))  
         return;
     printf("%s", buf);
-    sscanf(buf, "%s %s %s", method, uri, version);      
-    if (strcasecmp(method, "GET")) {                     
+    sscanf(buf, "%s %s %s", method, uri, version);       
+    if (strcasecmp(method, "GET")!=0 && strcasecmp(method,"POST")!=0) {                     
         clienterror(fd, method, "501", "Not Implemented",
                     "WebcServer does not implement this method  ");
         return;
-    }                                                    
-    read_requesthdrs(&rio);                              
+    }                                                   
+    if(strcasecmp(method, "POST")==0)
+		isGet=0;
 
-    /* Parse URI from GET request */
-    is_static = parse_uri(uri, filename, cgiargs);       
+    is_static = parse_uri(uri, filename, cgiargs);      
     if (stat(filename, &sbuf) < 0) {                     
 	clienterror(fd, filename, "404", "Not found",
 		    "WebcServer couldn't find this file  ");
 	return;
     }                                                   
 
-    if (is_static) { /* Serve static content */          
-	if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)) { 
+    if (is_static) {        
+	get_requesthdrs(&rio);
+	    if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)) {
 	    clienterror(fd, filename, "403", "Forbidden",
 			"WebcServer couldn't read the file  ");
 	    return;
 	}
 	serve_static(fd, filename, sbuf.st_size);        
     }
-    else { /* Serve dynamic content */
+    else { 
 	if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) { 
 	    clienterror(fd, filename, "403", "Forbidden",
 			"WebcServer couldn't run the CGI program  ");
 	    return;
 	}
-	serve_dynamic(fd, filename, cgiargs);            
+	if(isGet){
+		get_requesthdrs(&rio);
+	        get_dynamic(fd, filename, cgiargs);          
+    }
+	else{
+		post_requesthdrs(&rio,&contentLength);
+		post_dynamic(fd, filename,contentLength,&rio);
+	}
     }
 }
 
-void read_requesthdrs(rio_t *rp) 
+void get_requesthdrs(rio_t *rp) 
 {
     char buf[MAXLINE];
 
     Rio_readlineb(rp, buf, MAXLINE);
     printf("%s", buf);
-    while(strcmp(buf, "\r\n")) {          
+    while(strcmp(buf, "\r\n")) 
+    {
 	Rio_readlineb(rp, buf, MAXLINE);
 	printf("%s", buf);
     }
     return;
 }
+
+void post_requesthdrs(rio_t *rp,int *length) 
+{
+    char buf[MAXLINE];
+    char *p;
+
+    Rio_readlineb(rp, buf, MAXLINE);
+    printf("%s", buf);
+    while(strcmp(buf, "\r\n")) 
+    {
+	Rio_readlineb(rp, buf, MAXLINE);
+	if(strncasecmp(buf,"Content-Length:",15)==0)
+	{
+		p=&buf[15];	
+		p+=strspn(p," \t");
+		*length=atol(p);
+	}
+	printf("%s", buf);
+    }
+    return;
+}
+
 
 int parse_uri(char *uri, char *filename, char *cgiargs) 
 {
@@ -154,22 +188,56 @@ void get_filetype(char *filename, char *filetype)
 	strcpy(filetype, "text/plain");
 }  
 
-void serve_dynamic(int fd, char *filename, char *cgiargs) 
+void get_dynamic(int fd, char *filename, char *cgiargs) 
 {
     char buf[MAXLINE], *emptylist[] = { NULL };
 
-    sprintf(buf, "HTTP/1.0 200 OK\r\n"); 
+    sprintf(buf, "HTTP/1.0 200 OK\r\n");
     Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Server: WebcServer\r\n");
     Rio_writen(fd, buf, strlen(buf));
   
-    if (Fork() == 0) { 
-
+    if (Fork() == 0) 
+    { 
 	setenv("QUERY_STRING", cgiargs, 1); 
-	Dup2(fd, STDOUT_FILENO);        
+	Dup2(fd, STDOUT_FILENO);         
 	Execve(filename, emptylist, environ); 
     }
     Wait(NULL); 
+}
+
+void post_dynamic(int fd, char *filename, int contentLength,rio_t *rp)
+{
+    char buf[MAXLINE],length[32], *emptylist[] = { NULL },data[MAXLINE];
+    int p[2];
+
+    sprintf(length,"%d",contentLength);
+    memset(data,0,MAXLINE);
+
+    pipe(p);
+
+    if (Fork() == 0)
+	{                     
+	Close(p[0]);
+	Rio_readnb(rp,data,contentLength);
+	Rio_writen(p[1],data,contentLength);
+	exit(0)	;
+	}
+    
+    sprintf(buf, "HTTP/1.0 200 OK\r\n");
+    sprintf(buf, "%sServer: WebcServer\r\n",buf);
+
+    Rio_writen(fd, buf, strlen(buf));
+
+    Dup2(p[0],STDIN_FILENO);  
+    Close(p[0]);
+
+    Close(p[1]);
+    setenv("CONTENT-LENGTH",length , 1); 
+
+    Dup2(fd,STDOUT_FILENO);       
+	Execve(filename, emptylist, environ); 
+    
 }
 
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg) 
