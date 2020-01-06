@@ -1,14 +1,14 @@
 #include "util.h"
 
-void request_handler(int fd);
-void get_requesthdrs(rio_t *rp);
-void post_requesthdrs(rio_t *rp,int *length);
-int parse_uri(char *uri, char *filename, char *cgiargs);
-void serve_static(int fd, char *filename, int filesize);
-void get_filetype(char *filename, char *filetype);
-void get_dynamic(int fd, char *filename, char *cgiargs);
-void post_dynamic(int fd, char *filename, int contentLength,rio_t *rp); 
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
+void request_handler(int fd); //请求处理函数
+void get_requesthdrs(rio_t *rp); //get请求报头读取函数
+void post_requesthdrs(rio_t *rp,int *length); //post请求报头读取函数
+int parse_uri(char *uri, char *filename, char *cgiargs); //URI解析函数
+void serve_static(int fd, char *filename, int filesize); //请求静态内容函数
+void get_filetype(char *filename, char *filetype); //获得文件类型函数
+void get_dynamic(int fd, char *filename, char *cgiargs); //get方法请求动态内容函数
+void post_dynamic(int fd, char *filename, int contentLength,rio_t *rp); //post方法请求动态内容函数 
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg); //生成错误页面函数
 
 
 int main(int argc, char **argv) 
@@ -18,7 +18,7 @@ int main(int argc, char **argv)
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
 
-    if (argc != 2) {
+    if (argc != 2) {    //检查是否输入了端口号
 	fprintf(stderr, "usage: %s <port>\n", argv[0]);
 	exit(1);
     }
@@ -27,18 +27,17 @@ int main(int argc, char **argv)
     while (1) {
 	clientlen = sizeof(clientaddr);
 	connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen); 
-        Getnameinfo((SA *) &clientaddr, clientlen, hostname, MAXLINE, 
-                    port, MAXLINE, 0);
+        Getnameinfo((SA *) &clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
         printf("Accepted connection from (%s, %s)\n", hostname, port);
-	request_handler(connfd);                                             
+	request_handler(connfd);      // 请求处理                                         
 	Close(connfd);                                           
     }
 }
 
-void request_handler(int fd) 
+void request_handler(int fd) //请求处理函数
 {
     int is_static;
-	int isGet=1,contentLength=0;
+    int isGet=1,contentLength=0;
     struct stat sbuf;
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
     char filename[MAXLINE], cgiargs[MAXLINE];
@@ -49,31 +48,32 @@ void request_handler(int fd)
         return;
     printf("%s", buf);
     sscanf(buf, "%s %s %s", method, uri, version);       
-    if (strcasecmp(method, "GET")!=0 && strcasecmp(method,"POST")!=0) {                     
+    if (strcasecmp(method, "GET")!=0 && strcasecmp(method,"POST")!=0) {     //判断请求方法是否为get或post                
         clienterror(fd, method, "501", "Not Implemented",
                     "WebcServer does not implement this method  ");
         return;
     }                                                   
-    if(strcasecmp(method, "POST")==0)
+    if(strcasecmp(method, "POST")==0)    //如果方法是get，isGet赋值为0
 		isGet=0;
 
-    is_static = parse_uri(uri, filename, cgiargs);      
+    is_static = parse_uri(uri, filename, cgiargs);
+      
     if (stat(filename, &sbuf) < 0) {                     
 	clienterror(fd, filename, "404", "Not found",
 		    "WebcServer couldn't find this file  ");
 	return;
     }                                                   
 
-    if (is_static) {        
+    if (is_static) {     //请求静态内容   
 	get_requesthdrs(&rio);
 	    if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)) {
 	    clienterror(fd, filename, "403", "Forbidden",
 			"WebcServer couldn't read the file  ");
 	    return;
 	}
-	serve_static(fd, filename, sbuf.st_size);        
+	serve_static(fd, filename, sbuf.st_size);         
     }
-    else { 
+    else {  //请求动态内容
 	if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) { 
 	    clienterror(fd, filename, "403", "Forbidden",
 			"WebcServer couldn't run the CGI program  ");
@@ -81,16 +81,16 @@ void request_handler(int fd)
 	}
 	if(isGet){
 		get_requesthdrs(&rio);
-	        get_dynamic(fd, filename, cgiargs);          
+	        get_dynamic(fd, filename, cgiargs);          //get请求动态内容
     }
 	else{
 		post_requesthdrs(&rio,&contentLength);
-		post_dynamic(fd, filename,contentLength,&rio);
+		post_dynamic(fd, filename,contentLength,&rio);  //post请求动态内容
 	}
     }
 }
 
-void get_requesthdrs(rio_t *rp) 
+void get_requesthdrs(rio_t *rp) //get请求报头读取函数
 {
     char buf[MAXLINE];
 
@@ -104,7 +104,7 @@ void get_requesthdrs(rio_t *rp)
     return;
 }
 
-void post_requesthdrs(rio_t *rp,int *length) 
+void post_requesthdrs(rio_t *rp,int *length) //post请求报头读取函数
 {
     char buf[MAXLINE];
     char *p;
@@ -126,19 +126,20 @@ void post_requesthdrs(rio_t *rp,int *length)
 }
 
 
-int parse_uri(char *uri, char *filename, char *cgiargs) 
+int parse_uri(char *uri, char *filename, char *cgiargs) //URI解析函数
 {
     char *ptr;
 
-    if (!strstr(uri, "cgi-bin")) {  
+    if (!strstr(uri, "cgi-bin")) {  //请求静态内容
 	strcpy(cgiargs, "");                             
 	strcpy(filename, ".");                           
 	strcat(filename, uri);                           
 	if (uri[strlen(uri)-1] == '/')                   
-	    strcat(filename, "home.html");              
+	    strcat(filename, "home.html");     //默认首页         
 	return 1;
     }
-    else {                       
+
+    else {         //请求动态内容              
 	ptr = index(uri, '?');                           
 	if (ptr) {
 	    strcpy(cgiargs, ptr+1);
@@ -152,7 +153,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
     }
 }
 
-void serve_static(int fd, char *filename, int filesize) 
+void serve_static(int fd, char *filename, int filesize) //请求静态内容函数
 {
     int srcfd;
     char *srcp, filetype[MAXLINE], buf[MAXBUF];
@@ -174,7 +175,7 @@ void serve_static(int fd, char *filename, int filesize)
     Munmap(srcp, filesize);                 
 }
 
-void get_filetype(char *filename, char *filetype) 
+void get_filetype(char *filename, char *filetype) //获得文件类型函数
 {
     if (strstr(filename, ".html"))
 	strcpy(filetype, "text/html");
@@ -188,7 +189,7 @@ void get_filetype(char *filename, char *filetype)
 	strcpy(filetype, "text/plain");
 }  
 
-void get_dynamic(int fd, char *filename, char *cgiargs) 
+void get_dynamic(int fd, char *filename, char *cgiargs) //get方法请求动态内容函数
 {
     char buf[MAXLINE], *emptylist[] = { NULL };
 
@@ -197,16 +198,16 @@ void get_dynamic(int fd, char *filename, char *cgiargs)
     sprintf(buf, "Server: WebcServer\r\n");
     Rio_writen(fd, buf, strlen(buf));
   
-    if (Fork() == 0) 
+    if (Fork() == 0) //子进程
     { 
 	setenv("QUERY_STRING", cgiargs, 1); 
 	Dup2(fd, STDOUT_FILENO);         
 	Execve(filename, emptylist, environ); 
     }
-    Wait(NULL); 
+    Wait(NULL); //父进程等待子进程结束并回收
 }
 
-void post_dynamic(int fd, char *filename, int contentLength,rio_t *rp)
+void post_dynamic(int fd, char *filename, int contentLength,rio_t *rp) //post方法请求动态内容函数 
 {
     char buf[MAXLINE],length[32], *emptylist[] = { NULL },data[MAXLINE];
     int p[2];
@@ -216,31 +217,32 @@ void post_dynamic(int fd, char *filename, int contentLength,rio_t *rp)
 
     pipe(p);
 
-    if (Fork() == 0)
-	{                     
+    if (Fork() == 0)  //子进程
+    {                     
 	Close(p[0]);
-	Rio_readnb(rp,data,contentLength);
-	Rio_writen(p[1],data,contentLength);
+	Rio_readnb(rp,data,contentLength);  //读取数据长度
+	Rio_writen(p[1],data,contentLength); //写入数据到p[1]
 	exit(0)	;
-	}
+    }
     
+    //发送响应头部
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
     sprintf(buf, "%sServer: WebcServer\r\n",buf);
 
     Rio_writen(fd, buf, strlen(buf));
 
-    Dup2(p[0],STDIN_FILENO);  
+    Dup2(p[0],STDIN_FILENO);  //重定向p[0]到标准输入
     Close(p[0]);
 
     Close(p[1]);
     setenv("CONTENT-LENGTH",length , 1); 
 
-    Dup2(fd,STDOUT_FILENO);       
-	Execve(filename, emptylist, environ); 
+    Dup2(fd,STDOUT_FILENO);      
+    Execve(filename, emptylist, environ); 
     
 }
 
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg) 
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg) //生成错误页面函数
 {
     char buf[MAXLINE], body[MAXBUF];
 
