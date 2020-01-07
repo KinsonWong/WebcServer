@@ -36,15 +36,6 @@ pid_t Wait(int *status)
     return pid;
 }
 
-pid_t Waitpid(pid_t pid, int *iptr, int options) 
-{
-    pid_t retpid;
-
-    if ((retpid  = waitpid(pid, iptr, options)) < 0) 
-	unix_error("Waitpid error");
-    return(retpid);
-}
-
 void *Mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset) 
 {
     void *ptr;

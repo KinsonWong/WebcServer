@@ -36,7 +36,6 @@ void gai_error(int code, char *msg);
 pid_t Fork(void);
 void Execve(const char *filename, char *const argv[], char *const envp[]);
 pid_t Wait(int *status);
-pid_t Waitpid(pid_t pid, int *iptr, int options);
 
 void *Mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset);
 void Munmap(void *start, size_t length);

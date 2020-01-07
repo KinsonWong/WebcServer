@@ -17,8 +17,9 @@ int main(int argc, char **argv)
     char hostname[MAXLINE], port[MAXLINE];
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
+    pid_t pid;
 
-    if (argc != 2) {    //检查是否输入了端口号
+    if (argc != 2) {    //检查运行时是否输入了端口号
 	fprintf(stderr, "usage: %s <port>\n", argv[0]);
 	exit(1);
     }
@@ -26,11 +27,21 @@ int main(int argc, char **argv)
     listenfd = Open_listenfd(argv[1]);
     while (1) {
 	clientlen = sizeof(clientaddr);
-	connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen); 
-        Getnameinfo((SA *) &clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
-        printf("Accepted connection from (%s, %s)\n", hostname, port);
-	request_handler(connfd);      // 请求处理                                         
-	Close(connfd);                                           
+	connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);   //接受连接请求
+	if((pid=Fork())>0)  //父进程
+	{
+		Close(connfd);
+		waitpid(pid,NULL,0);     //等待子进程结束，回收进程
+		continue;
+	}
+	else if(pid==0)  //子进程
+	{
+        	Getnameinfo((SA *) &clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
+        	printf("Accepted connection from (%s, %s)\n", hostname, port);
+		request_handler(connfd);      // 请求处理                                        
+		Close(connfd); 
+		exit(1);
+	}	
     }
 }
 
@@ -53,7 +64,7 @@ void request_handler(int fd) //请求处理函数
                     "WebcServer does not implement this method  ");
         return;
     }                                                   
-    if(strcasecmp(method, "POST")==0)    //如果方法是get，isGet赋值为0
+    if(strcasecmp(method, "POST")==0)    //如果方法是post，isGet赋值为0
 		isGet=0;
 
     is_static = parse_uri(uri, filename, cgiargs);
@@ -81,11 +92,11 @@ void request_handler(int fd) //请求处理函数
 	}
 	if(isGet){
 		get_requesthdrs(&rio);
-	        get_dynamic(fd, filename, cgiargs);          //get请求动态内容
+	        get_dynamic(fd, filename, cgiargs);          //get方法请求动态内容
     }
 	else{
 		post_requesthdrs(&rio,&contentLength);
-		post_dynamic(fd, filename,contentLength,&rio);  //post请求动态内容
+		post_dynamic(fd, filename,contentLength,&rio);  //post方法请求动态内容
 	}
     }
 }
@@ -202,7 +213,7 @@ void get_dynamic(int fd, char *filename, char *cgiargs) //get方法请求动态�
     { 
 	setenv("QUERY_STRING", cgiargs, 1); 
 	Dup2(fd, STDOUT_FILENO);         
-	Execve(filename, emptylist, environ); 
+	Execve(filename, emptylist, environ);  //执行CGI程序
     }
     Wait(NULL); //父进程等待子进程结束并回收
 }
@@ -238,7 +249,7 @@ void post_dynamic(int fd, char *filename, int contentLength,rio_t *rp) //post方
     setenv("CONTENT-LENGTH",length , 1); 
 
     Dup2(fd,STDOUT_FILENO);      
-    Execve(filename, emptylist, environ); 
+    Execve(filename, emptylist, environ);  //执行CGI程序
     
 }
 
