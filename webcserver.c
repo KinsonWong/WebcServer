@@ -226,7 +226,7 @@ void post_dynamic(int fd, char *filename, int contentLength,rio_t *rp) //post方
     sprintf(length,"%d",contentLength);
     memset(data,0,MAXLINE);
 
-    pipe(p);
+    pipe(p);   //创建无名管道
 
     if (Fork() == 0)  //子进程
     {                     
@@ -248,7 +248,7 @@ void post_dynamic(int fd, char *filename, int contentLength,rio_t *rp) //post方
     Close(p[1]);
     setenv("CONTENT-LENGTH",length , 1); 
 
-    Dup2(fd,STDOUT_FILENO);      
+    Dup2(fd,STDOUT_FILENO);      //重定向fd到输出
     Execve(filename, emptylist, environ);  //执行CGI程序
     
 }
